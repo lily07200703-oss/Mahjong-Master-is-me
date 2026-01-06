@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>2026 Lily Mahjong Diary</title>
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700;900&display=swap');
+        body { 
+            font-family: 'Noto Sans TC', sans-serif; 
+            background-color: #F4EDFF; 
+            touch-action: manipulation;
+        }
+        @keyframes fall { 
+            0% { transform: translateY(-100px) rotate(0deg); opacity: 1; } 
+            100% { transform: translateY(110vh) rotate(720deg); opacity: 0; } 
+        }
+        .animate-fall { animation: fall linear forwards; }
+        @keyframes pop { 
+            from { transform: scale(0.94); opacity: 0; } 
+            to { transform: scale(1); opacity: 1; } 
+        }
+        .animate-pop { animation: pop 0.3s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+        input[type=number]::-webkit-inner-spin-button, 
+        input[type=number]::-webkit-outer-spin-button { 
+            -webkit-appearance: none; margin: 0; 
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useMemo } = React;
+
+        const Icons = {
+            ChevronLeft: () => <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="m15 18-6-6 6-6"/></svg>,
+            ChevronRight: () => <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6"/></svg>,
+            Plus: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14m-7-7v14"/></svg>,
+            Minus: () => <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14"/></svg>,
+            X: () => <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>,
+            Trash2: () => <svg className="inline" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2m-6 9 2 2 4-4"/></svg>
+        };
+
+        const App = () => {
+            const STORAGE_KEY = 'lily_mahjong_2026_v2';
+            const [currentMonth, setCurrentMonth] = useState(new Date().getMonth()); 
+            const [gameData, setGameData] = useState(() => {
+                try {
+                    const saved = localStorage.getItem(STORAGE_KEY);
+                    return saved ? JSON.parse(saved) : {};
+                } catch (e) { 
+                    console.error("Storage load error", e);
+                    return {}; 
+                }
+            });
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [selectedDate, setSelectedDate] = useState(null);
+            const [particles, setParticles] = useState([]);
+            const [copied, setCopied] = useState(false);
+            const [formData, setFormData] = useState({ base: '', games: '', profit: '' });
+            const audioCtx = useRef(null);
+
+            useEffect(() => {
+                try {
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(gameData));
+                } catch (e) {
+                    console.error("Storage save error", e);
+                }
+            }, [gameData]);
+
+            const T = {
+                mainTitle: "2026 麻將戰績表",
+                totalProfit: "年度收益",
+                winProfit: "勝場收益",
+                lossProfit: "敗場支出",
+                accGames: "累積將數",
+                moneyHint: "錢錢在這裡",
+                winHint: "發財囉 次數：",
+                lossHint: "再接再厲 次數：",
+                gameHint: "人菜癮又大",
+                yearSuffix: "年",
+                monthSettle: "當月結算 $",
+                weekDays: ["一", "二", "三", "四", "五", "六", "日"], 
+                modalQuestion: "有沒有贏？！🙌",
+                baseLabel: "底分 / 台數",
+                customPlaceholder: "",
+                gameLabel: "將 數",
+                profitLabel: "金 額",
+                winMsg: "✨ 今天贏！",
+                lossMsg: "😭 今天輸…",
+                drawMsg: "沒輸沒贏~",
+                saveBtn: "✨ 紀 錄 這 場 勝 負",
+                delBtn: "刪除這筆紀錄",
+                backupBtn: "備份所有紀錄",
+                copySuccess: "✨ 已複製存檔"
+            };
+
+            const playSound = (type) => {
+                try {
+                    if (!audioCtx.current) {
+                        audioCtx.current = new (window.AudioContext || window.webkitAudioContext)();
+                    }
+                    const now = audioCtx.current.currentTime;
+                    if (audioCtx.current.state === 'suspended') audioCtx.current.resume();
+
+                    if (type === 'win') {
+                        [0, 0.1].forEach((delay) => {
+                            const osc = audioCtx.current.createOscillator();
+                            const gain = audioCtx.current.createGain();
+                            osc.type = 'square';
+                            osc.frequency.setValueAtTime(987.77, now + delay); 
+                            osc.frequency.setValueAtTime(1318.51, now + delay + 0.08); 
+                            gain.gain.setValueAtTime(0.06, now + delay);
+                            gain.gain.exponentialRampToValueAtTime(0.01, now + delay + 0.3);
+                            osc.connect(gain); gain.connect(audioCtx.current.destination);
+                            osc.start(now + delay); osc.stop(now + delay + 0.3);
+                        });
+                    } else {
+                        const osc = audioCtx.current.createOscillator();
+                        const gain = audioCtx.current.createGain();
+                        osc.type = 'square';
+                        osc.frequency.setValueAtTime(400, now);
+                        osc.frequency.exponentialRampToValueAtTime(100, now + 0.6); 
+                        gain.gain.setValueAtTime(0.1, now);
+                        gain.gain.linearRampToValueAtTime(0, now + 0.6);
+                        osc.connect(gain); gain.connect(audioCtx.current.destination);
+                        osc.start(now); osc.stop(now + 0.6);
+                    }
+                } catch (e) {}
+            };
+
+            const triggerRain = (type) => {
+                const emojis = type === 'win' ? ['✨', '💵', '💜', '🧧'] : ['😭', '💢', '💸','💪'];
+                const newParticles = Array.from({ length: 40 }).map((_, i) => ({
+                    id: Math.random(),
+                    char: emojis[Math.floor(Math.random() * emojis.length)],
+                    left: Math.random() * 100,
+                    duration: 1.5 + Math.random() * 1.5,
+                    delay: Math.random() * 0.5,
+                    size: 20 + Math.random() * 20
+                }));
+                setParticles(newParticles);
+                setTimeout(() => setParticles([]), 4000);
+            };
+
+            const monthNames = ["1月", "2月", "3月", "4月", "5月", "6月", "7月", "8月", "9月", "10月", "11月", "12月"];
+            const daysInMonth = new Date(2026, currentMonth + 1, 0).getDate();
+            const firstDay = new Date(2026, currentMonth, 1).getDay();
+            const shift = firstDay === 0 ? 6 : firstDay - 1;
+
+            const stats = useMemo(() => Object.values(gameData).reduce((acc, curr) => {
+                const p = Number(curr.profit) || 0;
+                acc.totalProfit += p;
+                if (p > 0) { acc.totalWin += p; acc.winCount += 1; }
+                else if (p < 0) { acc.totalLoss += Math.abs(p); acc.lossCount += 1; }
+                acc.totalGames += Number(curr.games) || 0;
+                return acc;
+            }, { totalProfit: 0, totalWin: 0, totalLoss: 0, totalGames: 0, winCount: 0, lossCount: 0 }), [gameData]);
+
+            const monthTotal = useMemo(() => Object.entries(gameData)
+                .filter(([key]) => key.startsWith(`2026-${currentMonth + 1}-`))
+                .reduce((sum, [, val]) => sum + (Number(val.profit) || 0), 0), [gameData, currentMonth]);
+
+            const openDateModal = (day) => {
+                const dateKey = `2026-${currentMonth + 1}-${day}`;
+                setSelectedDate(dateKey);
+                setFormData(gameData[dateKey] || { base: '', games: '', profit: '' });
+                setIsModalOpen(true);
+            };
+
+            const handleSave = () => {
+                const profitNum = Number(formData.profit) || 0;
+                const gamesNum = Number(formData.games) || 0;
+                if (profitNum > 0) { playSound('win'); triggerRain('win'); }
+                else if (profitNum < 0) { playSound('loss'); triggerRain('loss'); }
+                
+                setGameData(prev => ({ 
+                    ...prev, 
+                    [selectedDate]: { 
+                        ...formData, 
+                        profit: profitNum, 
+                        games: gamesNum 
+                    } 
+                }));
+                setIsModalOpen(false);
+            };
+
+            const handleBackup = () => {
+                const text = JSON.stringify(gameData, null, 2);
+                const el = document.createElement("textarea");
+                el.value = text;
+                el.setAttribute('readonly', '');
+                el.style.position = 'absolute';
+                el.style.left = '-9999px';
+                document.body.appendChild(el);
+                el.select();
+                try {
+                    document.execCommand('copy');
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                } catch (err) {
+                    console.error('Copy failed', err);
+                }
+                document.body.removeChild(el);
+            };
+
+            return (
+                <div className="min-h-screen p-4 pb-10 overflow-x-hidden relative">
+                    {particles.map(p => (
+                        <div key={p.id} className="fixed pointer-events-none animate-fall z-[1000]" 
+                             style={{ left: `${p.left}%`, top: '-50px', animationDelay: `${p.delay}s`, animationDuration: `${p.duration}s`, fontSize: `${p.size}px` }}>
+                            {p.char}
+                        </div>
+                    ))}
+
+                    <div className="max-w-[450px] mx-auto">
+                        <div className="flex flex-col items-center mt-6 mb-10">
+                            <h1 className="text-[32px] sm:text-[40px] font-black text-[#B794F4] leading-tight text-center w-full tracking-wider">{T.mainTitle}</h1>
+                            <div className="text-[#D1BCFF] font-black text-[12px] tracking-[0.4em] -mt-1 uppercase">LILY MAHJONG DIARY</div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-4 mb-6">
+                            <StatCard 
+                                title={T.totalProfit} 
+                                value={stats.totalProfit} 
+                                unit="$" 
+                                sub={`💰 ${T.moneyHint}`} 
+                                color="purple" 
+                            />
+                            <StatCard title={T.winProfit} value={stats.totalWin} unit="+" sub={`🀄️ ${T.winHint}${stats.winCount}`} color="teal" />
+                            <StatCard title={T.lossProfit} value={stats.totalLoss} unit="-" sub={`💸 ${T.lossHint}${stats.lossCount}`} color="red" />
+                            <StatCard title={T.accGames} value={stats.totalGames} unit="" sub={`🔥 ${T.gameHint}`} color="blue" />
+                        </div>
+
+                        <div className="bg-white/90 backdrop-blur-md rounded-[40px] p-5 shadow-xl border-2 border-[#F3E8FF] mb-8">
+                            <div className="flex items-center justify-between mb-5">
+                                <button onClick={() => setCurrentMonth(m => Math.max(0, m - 1))} className="p-2 text-[#C4B5FD] active:scale-90"><Icons.ChevronLeft /></button>
+                                <div className="text-center">
+                                    <h2 className="text-[20px] font-black text-[#B794F4]">2026{T.yearSuffix} {monthNames[currentMonth]}</h2>
+                                    <div className={`text-[11px] font-black mt-2 px-4 py-1 rounded-full border ${monthTotal >= 0 ? 'bg-green-50 text-[#10B981] border-green-200' : 'bg-red-50 text-[#EF4444] border-red-200'}`}>
+                                        {T.monthSettle} {monthTotal >= 0 ? `+${monthTotal}` : monthTotal}
+                                    </div>
+                                </div>
+                                <button onClick={() => setCurrentMonth(m => Math.min(11, m + 1))} className="p-2 text-[#C4B5FD] active:scale-90"><Icons.ChevronRight /></button>
+                            </div>
+                            <div className="grid grid-cols-7 gap-2">
+                                {T.weekDays.map(d => <span key={d} className="text-center text-[11px] font-black text-[#D1BCFF] mb-1">{d}</span>)}
+                                {Array.from({ length: shift }).map((_, i) => <div key={`empty-${i}`} />)}
+                                {Array.from({ length: daysInMonth }).map((_, i) => {
+                                    const d = i + 1;
+                                    const dateKey = `2026-${currentMonth + 1}-${d}`;
+                                    const data = gameData[dateKey];
+                                    return (
+                                        <div key={d} onClick={() => openDateModal(d)} className={`h-12 rounded-full border-2 flex flex-col items-center justify-center cursor-pointer active:scale-90 transition-all ${data ? 'bg-[#F9F7FF] border-[#DDD6FE]' : 'bg-white border-[#FDFBFF]'}`}>
+                                            <span className={`text-sm font-black ${data ? 'text-[#8B5CF6]' : 'text-[#D1BCFF]'}`}>{d}</span>
+                                            {data && <div className={`text-[9px] font-black leading-none ${data.profit >= 0 ? 'text-[#10B981]' : 'text-[#EF4444]'}`}>{data.profit >= 0 ? `+${data.profit}` : data.profit}</div>}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        <div className="flex justify-center">
+                            <button onClick={handleBackup} className="px-8 py-3 bg-white/60 border-2 border-[#F3E8FF] rounded-full text-[13px] font-black text-[#A78BFA] active:scale-95">
+                                {copied ? T.copySuccess : T.backupBtn}
+                            </button>
+                        </div>
+                    </div>
+
+                    {isModalOpen && (
+                        <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-purple-900/20 backdrop-blur-lg">
+                            <div className="bg-white w-full max-w-[390px] rounded-[48px] p-7 shadow-2xl border-4 border-[#FDFBFF] animate-pop max-h-[90vh] overflow-y-auto">
+                                <div className="flex justify-between items-center mb-6">
+                                    <h3 className="text-[18px] font-black text-[#A78BFA]">2026/{currentMonth + 1}/{selectedDate.split('-')[2]} {T.modalQuestion}</h3>
+                                    <button onClick={() => setIsModalOpen(false)} className="text-[#E5E7EB] hover:text-[#A78BFA]"><Icons.X /></button>
+                                </div>
+                                <div className="space-y-6">
+                                    <div className="space-y-3">
+                                        <label className="text-[14px] font-black text-[#C4B5FD] block px-1">{T.baseLabel}</label>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {['30/10', '100/50', '200/100'].map(v => (
+                                                <button key={v} onClick={() => setFormData(p => ({...p, base: v}))} className={`py-3 rounded-2xl text-[13px] font-black border-2 transition-all ${formData.base === v ? 'bg-[#A78BFA] text-white border-[#A78BFA]' : 'bg-[#F9F7FF] text-[#C4B5FD] border-[#F3E8FF]'}`}>
+                                                    {v}
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <input type="text" placeholder={T.customPlaceholder} value={formData.base} onChange={(e) => setFormData(p => ({ ...p, base: e.target.value }))} className="w-full bg-[#FDFBFF] border-2 border-[#F3E8FF] rounded-2xl px-5 py-4 text-[16px] font-black outline-none focus:border-[#A78BFA]" />
+                                    </div>
+                                    
+                                    <CounterInput label={T.gameLabel} value={formData.games} onChange={val => setFormData(p => ({...p, games: val}))} step={1} color="purple" />
+                                    <CounterInput label={T.profitLabel} value={formData.profit} onChange={val => setFormData(p => ({...p, profit: val}))} step={50} color="green" />
+
+                                    <div className="flex flex-col items-center gap-3 pt-1">
+                                        {formData.profit !== '' && (
+                                            <div className={`text-[16px] font-black px-6 py-2 rounded-full animate-bounce ${Number(formData.profit) > 0 ? 'bg-green-100 text-green-500' : Number(formData.profit) < 0 ? 'bg-red-100 text-red-500' : 'bg-gray-100 text-gray-400'}`}>
+                                                {Number(formData.profit) > 0 ? T.winMsg : Number(formData.profit) < 0 ? T.lossMsg : T.drawMsg}
+                                            </div>
+                                        )}
+                                        <button onClick={handleSave} className="w-full bg-[#B794F4] text-white rounded-[28px] py-5 font-black text-[20px] shadow-lg active:translate-y-1 transition-all">{T.saveBtn}</button>
+                                    </div>
+
+                                    {gameData[selectedDate] && (
+                                        <button onClick={() => { 
+                                            const n = {...gameData}; 
+                                            delete n[selectedDate]; 
+                                            setGameData(n); 
+                                            setIsModalOpen(false); 
+                                        }} className="w-full text-red-300 font-bold text-[11px] py-1 opacity-60 hover:opacity-100 text-center">
+                                            <Icons.Trash2 /> <span className="ml-1">{T.delBtn}</span>
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const StatCard = ({ title, value, unit, sub, color }) => {
+            const colors = {
+                purple: 'bg-[#F5E8FF] text-[#9333EA] border-[#E9D5FF]',
+                teal: 'bg-[#E6FFFA]/80 text-[#0D9488] border-[#D1FAE5]',
+                red: 'bg-[#FFF5F5]/80 text-[#F28383] border-[#FEE2E2]',
+                blue: 'bg-[#EBF8FF]/80 text-[#3182CE] border-[#DBEAFE]'
+            };
+            const textColors = {
+                purple: 'text-[#AE67F5]',
+                teal: 'text-[#10B981]',
+                red: 'text-[#F54747]',
+                blue: 'text-[#3B82F6]'
+            };
+
+            const isNegative = value < 0;
+            const displayValue = isNegative ? `-$${Math.abs(value).toLocaleString()}` : `${unit}${Math.abs(value).toLocaleString()}`;
+            
+            // 如果是負數，文字改為紅色，否則遵循原本的顏色配置
+            const activeTextColor = isNegative ? 'text-[#EF4444]' : textColors[color];
+            // 框格背景色始終保持傳入的顏色（例如紫色），不因數值負數而改變
+            const activeBgColor = colors[color];
+
+            return (
+                <div className={`${activeBgColor} rounded-[32px] p-4 shadow-sm border-2 h-32 flex flex-col justify-between transition-colors`}>
+                    <p className="font-black text-[12px] opacity-80">{title}</p>
+                    <p className={`font-black text-center tracking-tighter truncate text-2xl ${activeTextColor}`}>
+                        {displayValue}
+                    </p>
+                    <p className="text-[10px] font-bold opacity-60 text-center">{sub}</p>
+                </div>
+            );
+        };
+
+        const CounterInput = ({ label, value, onChange, step, color }) => {
+            const numValue = Number(value) || 0;
+            let textColor = "#605485"; 
+            if (label.includes("額") && value !== '') {
+                if (numValue > 0) textColor = "#10B981";
+                else if (numValue < 0) textColor = "#EF4444";
+            }
+
+            return (
+                <div className="bg-[#F9F7FF] p-4 rounded-3xl border border-white flex items-center justify-between">
+                    <span className="text-[14px] font-black text-[#A78BFA] ml-2">{label}</span>
+                    <div className="flex items-center">
+                        <button onClick={() => onChange(Math.max(-99999, (Number(value) || 0) - step))} className="w-12 h-10 bg-white rounded-xl flex items-center justify-center border active:scale-95"><Icons.Minus /></button>
+                        <input 
+                            type="number" 
+                            value={value} 
+                            onChange={e => onChange(e.target.value)} 
+                            style={{ color: textColor }}
+                            className="w-20 text-center bg-transparent font-black text-[24px] outline-none transition-colors" 
+                            placeholder="0" 
+                        />
+                        <button onClick={() => onChange((Number(value) || 0) + step)} className="w-12 h-10 bg-white rounded-xl flex items-center justify-center border active:scale-95"><Icons.Plus /></button>
+                    </div>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
